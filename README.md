@@ -145,7 +145,15 @@ tests/                 26 tests
 
 ## What I'd do differently
 
-<!-- Fill this in. -->
+I led with rules for a clean demo and left the Days 11–13 anomaly detectors
+unwired, which means the platform shows signature detection but not behavioural
+detection — and a real SIEM needs both, since the interesting attacks are the
+ones no rule anticipates. I'd integrate the statistical/autoencoder detectors
+into the same event stream so an alert can come from "this rule matched" *or*
+"this entity's behaviour is anomalous." The timeline output is also too verbose —
+it lists all forty brute-force events; I'd collapse repeated events into a count
+with expand-on-demand, because a wall of identical lines is exactly the noise the
+investigation layer is supposed to remove.
 
 ## Known gaps
 
