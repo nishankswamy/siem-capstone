@@ -1,5 +1,7 @@
 # CAPSTONE — Security Data Platform
 
+[![tests](https://github.com/nishankswamy/siem-capstone/actions/workflows/tests.yml/badge.svg)](https://github.com/nishankswamy/siem-capstone/actions/workflows/tests.yml)
+
 A working SIEM: multi-source ingestion into a time-partitioned columnar store,
 continuous detection with dedup and MITRE ATT&CK mapping, and an investigation
 layer that turns an alert into a reconstructed incident. Days 23–26 — the first
