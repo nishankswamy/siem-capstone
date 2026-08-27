@@ -22,6 +22,7 @@ from collections import defaultdict, deque
 from dataclasses import dataclass, field
 
 from ..events import Event
+from .anomaly import AnomalyDetector
 from .rules import DEFAULT_RULES, Rule
 
 
@@ -48,7 +49,8 @@ _SEVERITY_ORDER = ["informational", "low", "medium", "high", "critical"]
 
 class DetectionEngine:
     def __init__(self, rules: list[Rule] | None = None,
-                 dedup_window: float = 300, min_severity: str = "low") -> None:
+                 dedup_window: float = 300, min_severity: str = "low",
+                 anomaly: bool = True) -> None:
         self.rules = rules or DEFAULT_RULES
         self.dedup_window = dedup_window
         self.min_severity = min_severity
@@ -57,6 +59,9 @@ class DetectionEngine:
         self._recent_bruteforce: dict[str, float] = {}
         self.alerts: list[Alert] = []
         self._next_id = 1
+        # Behavioural detection alongside the rules. An alert can now come from
+        # "a rule matched" OR "this entity is behaving abnormally".
+        self.anomaly = AnomalyDetector() if anomaly else None
 
     def _entity_value(self, event: Event, group_by: str) -> str:
         return str(event.get(group_by) or event.source_ip or "-")
@@ -82,6 +87,20 @@ class DetectionEngine:
                 fired.append(alert)
                 if rule.id == "ssh_bruteforce":
                     self._recent_bruteforce[alert.entity] = event.timestamp
+
+        # behavioural anomaly: an entity departing from its own baseline, with
+        # no rule needed. Deduped like any other alert.
+        if self.anomaly is not None:
+            descriptor = self.anomaly.observe(event)
+            if descriptor is not None and not self._suppressed(
+                    "behavioural_anomaly", descriptor["entity"], event.timestamp):
+                self._last_fired[("behavioural_anomaly", descriptor["entity"])] = event.timestamp
+                alert = self._emit(
+                    "behavioural_anomaly",
+                    f"Anomalous volume ({descriptor['value']:,}B, "
+                    f"{descriptor['z_score']}σ over baseline)",
+                    "high", "T1048", event, descriptor["entity"], "ip", 1)
+                fired.append(alert)
 
         # correlation: successful login after a recent brute force from same IP
         if (event.action == "ssh_login" and event.outcome == "success"

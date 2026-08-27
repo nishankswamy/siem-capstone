@@ -10,7 +10,7 @@ capstone, assembling the security track into one platform.
 ```bash
 pip install -r requirements.txt
 python run_platform.py   # ingest an attack scenario end to end
-pytest                   # 26 tests
+pytest                   # 36 tests
 ```
 
 ## What it does, in one run
@@ -22,7 +22,7 @@ analyst a reconstructed incident:
 
 ```
 2,347 events in 13 ms (175,000 events/sec), per-event p50 5.3µs, p99 13.6µs
-5 alerts fired, all tied to the attacker
+6 alerts: 5 tied to the external attacker, 1 a signature-less insider anomaly
 
 Triage queue (worst first):
   [critical] SSH brute force succeeded  45.13.37.9  T1110.001
@@ -49,6 +49,15 @@ analyst here goes alert → entity → full timeline in **one indexed lookup eac
 because the store maintains inverted indexes from IP/user/host to events. That
 pivot is **26x faster than scanning** the store — the difference between an
 investigation and a grep.
+
+**Signatures catch what you expected; baselines catch what you didn't.** The
+platform runs behavioural anomaly detection alongside the rules: a per-entity
+online baseline of data volume flags an internal host that suddenly moves 50x its
+normal traffic (6 MB at **139σ** over its own history). No signature rule fires on
+it — it's under the egress threshold and comes from a trusted internal IP — and
+that's the point. The interesting intrusions are the ones no rule anticipated, and
+they're only visible as a departure from an entity's own normal. An alert now
+comes from "a rule matched" *or* "this entity is behaving abnormally".
 
 **One entity, the whole story.** Because every source normalises to one schema and
 every alert carries its entity, the attacker's SSH brute force (auth), scan
@@ -80,6 +89,14 @@ the same IP (the guess that landed) as a distinct critical. Every rule maps to a
 ATT&CK technique, so alerts group into a campaign by tactic. Detection runs
 **inline with ingestion**, which is what makes ingest-to-alert latency a
 per-event microsecond figure rather than a batch interval.
+
+Alongside the rules, a **behavioural detector** (`detect/anomaly.py`) learns a
+per-entity baseline online — an EWMA mean and a MAD-style spread of data volume —
+and flags departures with no signature required. It's deliberately the simple
+statistical baseline, not an ML model, because the Days 11–13 project *measured*
+that Isolation Forest can do worse than STL+MAD on this kind of stream. Scoring
+happens before the baseline folds the event in, so a spike is judged against its
+own past and can't hide by inflating its own mean.
 
 ### Investigation
 
@@ -139,19 +156,22 @@ siem/
   store/eventstore.py  time-partitioned columnar store + entity indexes
   detect/rules.py      match & threshold rules, ATT&CK-mapped
   detect/engine.py     inline detection, dedup, correlation, alert store
+  detect/anomaly.py    per-entity behavioural baselines (signature-less)
   investigate/         triage queue, evidence pivot, entity view, timeline
   scenario.py          a full multi-stage attack in benign traffic
 run_platform.py        the end-to-end replay + latency measurement
-tests/                 26 tests
+tests/                 36 tests
 ```
 
 ## What I'd do differently
 
-I led with rules for a clean demo and left the Days 11–13 anomaly detectors
-unwired, which means the platform shows signature detection but not behavioural
-detection — and a real SIEM needs both, since the interesting attacks are the
-ones no rule anticipates. I'd integrate the statistical/autoencoder detectors
-into the same event stream so an alert can come from "this rule matched" *or*
+The first version led with rules only; I've since wired in a behavioural
+detector (per-entity volume baselines) so the platform now catches a
+signature-less insider anomaly no rule anticipates, and collapsed the timeline so
+a forty-event brute force is one line, not forty. What's still missing is
+richer behavioural features — the current baseline watches data volume only, and
+a real deployment would model login geography, time-of-day, and peer-group
+behaviour too. And an alert can come from "this rule matched" *or*
 "this entity's behaviour is anomalous." The timeline output is also too verbose —
 it lists all forty brute-force events; I'd collapse repeated events into a count
 with expand-on-demand, because a wall of identical lines is exactly the noise the
@@ -162,8 +182,9 @@ investigation layer is supposed to remove.
 - In-memory, single process. The architecture is faithful (partitioning, indexes,
   inline detection) but the scale story is simulated — real volume needs sharded
   ingest, on-disk partitions, and a distributed index.
-- No anomaly detectors wired in yet. The Days 11–13 statistical/ML detectors plug
-  into the same event stream; this capstone leads with rules for a clean demo.
+- Behavioural detection watches data volume only. Login geography, time-of-day,
+  and peer-group models are the natural next features on the same baseline
+  machinery.
 - Rules are code, not a query language. Splunk's SPL / Sigma-as-config is the
   real interface; here rules are Python objects.
 - No RBAC, audit log, or alert lifecycle beyond open/triaged/closed. Real SOC

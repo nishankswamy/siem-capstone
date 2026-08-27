@@ -16,6 +16,7 @@ from .events import Event
 ATTACKER = "45.13.37.9"
 VICTIM_HOST = "web01"
 EXFIL_DST = "203.0.113.50"
+INSIDER = "10.0.0.7"
 
 
 def build_scenario(benign_users: int = 50, duration: float = 3600,
@@ -70,6 +71,22 @@ def build_scenario(benign_users: int = 50, duration: float = 3600,
     events.append(Event(t0 + 1100, "network", "network", "flow",
                         source_ip=ATTACKER, dest_ip=EXFIL_DST, dest_port=443,
                         bytes=45_000_000, protocol="tcp", extra={"label": "attack"}))
+
+    # --- stage 5: signature-less insider anomaly ---
+    # An internal host with a long, boringly-normal history of small flows
+    # suddenly moves 50x its usual volume. No rule fires on it (it's under the
+    # large_egress threshold and from a trusted internal IP); only the
+    # behavioural baseline catches the departure. This is the case rules miss.
+    insider = "10.0.0.7"
+    for i in range(40):  # establish a normal baseline first
+        events.append(Event(t0 + 1300 + i * 5, "network", "network", "flow",
+                            source_ip=insider, dest_ip="10.0.0.1", dest_port=445,
+                            bytes=int(rng.integers(50_000, 150_000)),
+                            extra={"label": None}))
+    stages["insider_anomaly"] = t0 + 1600
+    events.append(Event(t0 + 1600, "network", "network", "flow",
+                        source_ip=insider, dest_ip="198.51.100.7", dest_port=443,
+                        bytes=6_000_000, extra={"label": "attack"}))  # 50x normal
 
     events.sort(key=lambda e: e.timestamp)
     return events, stages

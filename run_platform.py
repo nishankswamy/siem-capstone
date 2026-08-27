@@ -59,8 +59,16 @@ def main() -> None:
     print("Incident timeline (the postmortem writes itself)")
     print(inv.timeline("ip", ATTACKER).render())
 
+    # --- the signature-less catch: behavioural detection ---
+    from siem.scenario import INSIDER
+    print("\nSignature-less detection: an insider no rule would catch")
+    insider = [a for a in engine.alerts if a.entity == INSIDER]
+    for a in insider:
+        print(f"  [{a.severity}] {a.title}  ({a.entity})")
+    print("  no signature rule fired on this — only the per-entity baseline did.\n")
+
     # --- did we catch every stage? ---
-    print("\nCoverage: which attack stages produced an alert")
+    print("Coverage: which attack stages produced an alert")
     alert_techniques = {a.attack.split(".")[0] for a in engine.alerts
                         if a.entity == ATTACKER}
     stage_map = {"recon": "T1595", "bruteforce": "T1110", "compromise": "T1110",

@@ -26,11 +26,29 @@ class IncidentTimeline:
     entity: str
     events: list          # (timestamp, kind, description)
 
-    def render(self) -> str:
+    def render(self, collapse: bool = True) -> str:
+        """Render the timeline. Consecutive identical events are collapsed into
+        one line with a count and time span — a wall of forty identical brute-
+        force lines is exactly the noise the investigation layer should remove."""
         lines = [f"Timeline for {self.entity}:"]
-        for ts, kind, desc in self.events:
+        i = 0
+        rows = self.events
+        while i < len(rows):
+            ts, kind, desc = rows[i]
+            if collapse and kind == "event":
+                # look ahead for a run of the same description
+                j = i
+                while j < len(rows) and rows[j][1] == "event" and rows[j][2] == desc:
+                    j += 1
+                run = j - i
+                if run > 1:
+                    span = f"{_fmt(ts)}–{_fmt(rows[j-1][0])}"
+                    lines.append(f"  {span}  ×{run:<4} {desc}")
+                    i = j
+                    continue
             marker = "🚨" if kind == "alert" else "  "
             lines.append(f"  {_fmt(ts)}  {marker} {desc}")
+            i += 1
         return "\n".join(lines)
 
 

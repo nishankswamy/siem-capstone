@@ -2,7 +2,7 @@
 
 from siem.detect.engine import DetectionEngine
 from siem.investigate.investigation import Investigation
-from siem.scenario import ATTACKER, build_scenario
+from siem.scenario import ATTACKER, INSIDER, build_scenario
 from siem.store.eventstore import EventStore
 
 
@@ -27,13 +27,17 @@ def test_the_landed_login_produces_a_critical_alert():
     assert any(a.severity == "critical" and a.entity == ATTACKER for a in eng.alerts)
 
 
-def test_benign_traffic_generates_no_attacker_alerts_elsewhere():
-    """Alerts should concentrate on the attacker, not smear across benign IPs."""
+def test_alerts_concentrate_on_the_two_real_threats():
+    """Alerts should land on the external attacker and the insider anomaly, and
+    nowhere else — no smearing across the 50 benign IPs."""
+    from siem.scenario import INSIDER
     _, eng, _ = run()
     attacker_alerts = sum(a.entity == ATTACKER for a in eng.alerts)
-    other_alerts = sum(a.entity != ATTACKER for a in eng.alerts)
-    assert attacker_alerts >= 4
-    assert other_alerts == 0        # clean: no benign false positives
+    insider_alerts = sum(a.entity == INSIDER for a in eng.alerts)
+    stray = sum(a.entity not in (ATTACKER, INSIDER) for a in eng.alerts)
+    assert attacker_alerts >= 4          # the multi-stage campaign
+    assert insider_alerts >= 1           # the signature-less anomaly
+    assert stray == 0                    # clean: no benign false positives
 
 
 def test_investigation_reconstructs_the_full_campaign():
